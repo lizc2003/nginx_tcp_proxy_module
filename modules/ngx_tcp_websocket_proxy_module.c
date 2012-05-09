@@ -603,6 +603,49 @@ websocket_http_request_parser_execute(http_request_parser *hp)
             return NGX_AGAIN;
         }
         else if (rc == 1){
+            // add X-Real-IP
+            ngx_str_t* addr = &(s->connection->addr_text);
+            u_char* p;
+
+            length = 13 + addr->len;
+            n = s->buffer->end - s->buffer->last;
+            /*Not enough buffer? Enlarge it*/
+            if (n < length) {
+                u_char *new_buf;
+                ssize_t size = s->buffer->end - s->buffer->start;
+                new_buf = ngx_palloc(s->connection->pool, size + length);
+                if (new_buf == NULL) {
+                    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                            "http request momory error with client: %V, when add X-Real-IP", 
+                            &s->connection->addr_text);
+                    return NGX_ERROR;
+                }
+
+                ngx_memcpy(new_buf, s->buffer->start, s->buffer->last - s->buffer->start);
+            
+                n = s->buffer->pos - s->buffer->start;
+                offset = s->buffer->last - s->buffer->start;
+                s->buffer->start = new_buf;
+                s->buffer->pos = new_buf + n;
+                s->buffer->last = new_buf + offset;
+                s->buffer->end = new_buf + size + length;
+            }
+            p = ngx_strlcasestrn(s->buffer->start, s->buffer->pos, (u_char *) "X-Real-IP", 9 - 1);
+            while (p) {
+                *p = 'Q';
+                p = ngx_strlcasestrn(p+9, s->buffer->pos, (u_char *) "X-Real-IP", 9 - 1);
+            }
+            p = s->buffer->pos;
+            p -= 2;
+            if (*p != '\r') {
+                p++;
+            }
+            ngx_memmove(p + length, p, s->buffer->last - p);
+            ngx_memcpy(p, "X-Real-IP: ", 13 - 2);
+            ngx_memcpy(p + 13 - 2, addr->data, addr->len);
+            ngx_memcpy(p + length - 2, "\r\n", 2);
+            s->buffer->pos += length;
+            s->buffer->last += length;
             return NGX_OK;
         }
         else {
